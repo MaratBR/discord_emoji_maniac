@@ -1,7 +1,9 @@
 import abc
 import asyncio
 import inspect
+import re
 from datetime import datetime
+from functools import cached_property
 
 import discord
 import typing
@@ -37,6 +39,22 @@ class CommandContext:
     args: str
     message: discord.Message
 
+    @property
+    def args_or_empty(self):
+        return self.args or ''
+
+    @cached_property
+    def args_array(self):
+        if self.args is None:
+            return []
+        return re.split(r"\s+", self.args.strip())
+
+    def get_arg(self, index: int):
+        args = self.args_array
+        if len(args) <= index:
+            return None
+        return args[index]
+
     def __init__(self, bot_ctx: BotContext, args: str, message: discord.Message):
         self.parent = bot_ctx
         self.args = args
@@ -66,13 +84,17 @@ class FuncCommand(Command):
         self._func = func
 
 
+class FFCCommand(Command, abc.ABC):
+    def matches(self, text: str) -> bool:
+        pass
+
+
 class Bot:
     client: discord.Client
     config: Config
     log: Logger
     _commands: typing.Dict[str, Command] = {}
     _ctx: BotContext
-    command_prefixes: typing.List[str] = [':)', '🙂']
 
     def __init__(self, backend: typing.Type[EmojiBackend], cfg_file='emoji_cfg.yaml', client_args: dict = None):
         self.log = get_logger()
@@ -121,6 +143,8 @@ class Bot:
 
     async def on_ready(self):
         self.log.info(f'Bot is ready - {self.client.user.name}')
+        self.log.info(f'Initializing {type(self.backend).__name__} backend...')
+        await self.backend.init()
 
         c = self.client
         c.event(self.on_message)
@@ -128,16 +152,15 @@ class Bot:
         c.event(self.on_raw_reaction_remove)
         c.event(self.on_message_delete)
         c.event(self.on_message_delete)
-        self.command_prefixes.append(f"<@{self.client.user.id}>")
-        self.command_prefixes.append(f"<@!{self.client.user.id}>")
 
     async def on_message(self, message: discord.Message):
         if message.author == self.client.user:
             return
 
-        for prefix in self.command_prefixes:
+        for prefix in [f"<@{self.client.user.id}>", f"<@!{self.client.user.id}>"]:
             if message.content.startswith(prefix):
-                # this message contains command ignore processing just handle the command
+                # this message contains command, so we'll ignore processing
+                # and just handle the command
                 stripped = message.content[len(prefix):].strip()
                 parts = stripped.split(' ', 1)
                 command = self._commands.get(parts[0])
@@ -148,6 +171,8 @@ class Bot:
                     await command.execute(ctx)
                     return
                 else:
+                    # If there is no corresponding command, let's try to find if anything matches in FFC
+
                     self.log.debug(f'Unknown command issued: {parts[0]}, ignoring')
 
         await self._handle_incoming_message(message)

@@ -2,6 +2,7 @@ import abc
 import logging
 
 import typing
+from datetime import timedelta
 
 from emoji_maniac.bot.config import Config
 from emoji_maniac.log import get_logger
@@ -15,6 +16,9 @@ class EmojiBackend(abc.ABC):
     def __init__(self, config: Config):
         self.config = config
         self.log = get_logger(type(self).__name__)
+
+    async def init(self):
+        pass
 
     @abc.abstractmethod
     async def submit_emoji(self, source: EmojiSource, emoji_obj: MessageEmoji):
@@ -47,7 +51,16 @@ class EmojiBackend(abc.ABC):
                              user_id: int = None, limit: int = None) -> typing.List[StatsEmoji]:
         pass
 
-    async def get_emojis_global_top10(self, guild_id: int):
-        return await self.get_emojis_top(guild_id=guild_id, limit=10)
+    @abc.abstractmethod
+    async def get_cache(self, key: str):
+        pass
+
+    @abc.abstractmethod
+    async def put_cache(self, key: str, value, age: timedelta = timedelta(minutes=10)):
+        pass
+
+    @abc.abstractmethod
+    async def clear_cache(self):
+        pass
 
 

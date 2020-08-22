@@ -1,3 +1,5 @@
+import json
+import pickle
 import typing
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
@@ -58,7 +60,6 @@ class MotorEmojiBackend(EmojiBackend):
     _cfg: MotorConfig
     _db_name: str
     _db: mas.AsyncIOMotorDatabase
-    _emojis_collection: mas.AsyncIOMotorCollection
 
     def __init__(self, config: Config):
         super(MotorEmojiBackend, self).__init__(config)
@@ -66,17 +67,19 @@ class MotorEmojiBackend(EmojiBackend):
         self.log.info(f'MongoDB uri = {self._cfg.uri}, dbname = {self._cfg.dbname}')
         self.motor_client = mas.AsyncIOMotorClient(self._cfg.uri)
         self._db = self.motor_client[self._cfg.dbname]
-        self._emojis_collection = self._db.discord_emojies
+
+    async def init(self):
+        await self._db.ds_cache.create_index([('expires_at', 1)], expireAfterSeconds=0)
 
     async def submit_emoji(self, source: EmojiSource, emoji_obj: MessageEmoji):
         record = EmojiEntry.create(source, emoji_obj)
-        await self._emojis_collection.insert_one(asdict(record))
+        await self._db.ds_emojies.insert_one(asdict(record))
 
     async def remove_emoji_source(self, source: EmojiSource):
-        await self._emojis_collection.delete_many({'src_uid': source.uid})
+        await self._db.ds_emojies.delete_many({'src_uid': source.uid})
 
     async def remove_emoji(self, source: EmojiSource, emoji_obj: Emoji):
-        await self._emojis_collection.delete_many({
+        await self._db.ds_emojies.delete_many({
             'src_uid': source.uid,
             'is_reaction': source.reaction,
             'emoji_uid': emoji_obj.uid
@@ -114,7 +117,7 @@ class MotorEmojiBackend(EmojiBackend):
             pipeline.append({
                 '$limit': limit
             })
-        result = self._emojis_collection.aggregate(pipeline)
+        result = self._db.ds_emojies.aggregate(pipeline)
         stats = []
         async for doc in result:
             id_ = doc['_id']
@@ -127,3 +130,27 @@ class MotorEmojiBackend(EmojiBackend):
         for r in stats:
             r.percentage = r.total_mentions / total * 100
         return stats
+
+    async def put_cache(self, key: str, value, age: timedelta = timedelta(minutes=10)):
+        await self._db.ds_cache.update_one({
+            '_id': key
+        }, {
+            '$set': {
+                'value': pickle.dumps(value),
+                'expires_at': datetime.utcnow() + age
+            }
+        }, upsert=True)
+
+    async def get_cache(self, key: str):
+        record = await self._db.ds_cache.find_one({'_id': key})
+        if record is None:
+            return None
+        try:
+            value = pickle.loads(record['value'])
+            return value
+        except Exception as exc:
+            self.log.error('Failed to load cache: ' + str(exc))
+            return None
+
+    async def clear_cache(self):
+        await self._db.ds_cache.delete_many({})
