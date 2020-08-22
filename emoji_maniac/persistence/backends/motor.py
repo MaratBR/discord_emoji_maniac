@@ -1,11 +1,9 @@
+import asyncio
 import json
 import pickle
 import typing
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
-import base64
-import struct
-import emoji
 
 from emoji_maniac.bot.config import Config
 from emoji_maniac.persistence.emoji_backend import EmojiBackend, EmojiSource, Emoji, MessageEmoji
@@ -69,7 +67,14 @@ class MotorEmojiBackend(EmojiBackend):
         self._db = self.motor_client[self._cfg.dbname]
 
     async def init(self):
-        await self._db.ds_cache.create_index([('expires_at', 1)], expireAfterSeconds=0)
+        await asyncio.gather(
+            self._db.ds_cache.create_index([('expires_at', 1)], expireAfterSeconds=0),
+            self._db.ds_emojies.create_index([('emoji_uid', 1)]),
+            self._db.ds_emojies.create_index([('src_uid', 1)]),
+            self._db.ds_emojies.create_index([('at', 1)]),
+            self._db.ds_emojies.create_index([('at', 1), ('gld_id', 1)]),
+            self._db.ds_emojies.create_index([('at', 1), ('gld_id', 1), ('usr_id', 1)])
+        )
 
     async def submit_emoji(self, source: EmojiSource, emoji_obj: MessageEmoji):
         record = EmojiEntry.create(source, emoji_obj)
@@ -77,6 +82,11 @@ class MotorEmojiBackend(EmojiBackend):
 
     async def remove_emoji_source(self, source: EmojiSource):
         await self._db.ds_emojies.delete_many({'src_uid': source.uid})
+
+    async def submit_bulk(self, records: typing.List[typing.Tuple[EmojiSource, MessageEmoji]]):
+        records = [EmojiEntry.create(s, e) for (s, e) in records]
+        records = list(asdict(r) for r in records)
+        await self._db.ds_emojies.insert_many(records)
 
     async def remove_emoji(self, source: EmojiSource, emoji_obj: Emoji):
         await self._db.ds_emojies.delete_many({
@@ -132,6 +142,9 @@ class MotorEmojiBackend(EmojiBackend):
         return stats
 
     async def put_cache(self, key: str, value, age: timedelta = timedelta(minutes=10)):
+        if not self.config.cache_cfg.enabled:
+            return
+
         await self._db.ds_cache.update_one({
             '_id': key
         }, {
@@ -142,6 +155,8 @@ class MotorEmojiBackend(EmojiBackend):
         }, upsert=True)
 
     async def get_cache(self, key: str):
+        if not self.config.cache_cfg.enabled:
+            return None
         record = await self._db.ds_cache.find_one({'_id': key})
         if record is None:
             return None

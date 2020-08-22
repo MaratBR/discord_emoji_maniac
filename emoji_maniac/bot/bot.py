@@ -145,6 +145,7 @@ class Bot:
         self.log.info(f'Bot is ready - {self.client.user.name}')
         self.log.info(f'Initializing {type(self.backend).__name__} backend...')
         await self.backend.init()
+        self.log.info(f'Initializing {type(self.backend).__name__} backend COMPLETE')
 
         c = self.client
         c.event(self.on_message)

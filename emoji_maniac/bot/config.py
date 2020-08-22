@@ -10,12 +10,18 @@ except ImportError:
     from yaml import Loader, Dumper
 
 
+@dataclass
+class CacheConfig:
+    enabled: bool = True
+
+
 class Config:
     token: str = None
     _filename: str
     _data: dict
     log: logging.Logger
-    
+    cache_cfg: CacheConfig = CacheConfig()
+
     def __init__(self, filename: str):
         self._filename = filename
         self.log = get_logger(self.__class__)
@@ -28,6 +34,11 @@ class Config:
             return
         self.token = d.get('token')
         self._data = d
+
+        try:
+            self.cache_cfg = CacheConfig(**d['cache'])
+        except:
+            pass
 
     def get_backend_config(self, name: str):
         if self._data is None:

@@ -1,13 +1,15 @@
 import asyncio
 import random
 import time
-from datetime import datetime
+from functools import partial
 
-import discord
 import emoji
+import typing
+
+import emoji_maniac.bot.ds_utils as ds_utils
 
 from emoji_maniac.bot.bot import Command, CommandContext
-from emoji_maniac.persistence.models import EmojiSource, MessageEmoji
+from emoji_maniac.persistence.models import StatsEmoji, EmojiSource, MessageEmoji
 from emoji_maniac.persistence.utils import pack2b64
 
 
@@ -56,20 +58,33 @@ class GetStatsCommand(Command):
             await self._global_stats(ctx)
 
     async def _guild_stats(self, ctx: CommandContext):
-        await self._show_stats(ctx, self.TITLE_GUILD_RESULTS)
+        await self._show_stats(ctx, self.TITLE_GUILD_RESULTS, guild_id=ctx.message.guild.id)
 
     async def _user_stats(self, ctx: CommandContext):
-        await self._show_stats(ctx, random.choice(self.TITLE), self.TITLE_USERS_RESULTS, user_id=ctx.message.author.id)
+        await self._show_stats(ctx, random.choice(self.TITLE),
+                               self.TITLE_USERS_RESULTS,
+                               guild_id=ctx.message.guild.id,
+                               user_id=ctx.message.author.id)
 
     async def _global_stats(self, ctx: CommandContext):
-        await self._show_stats(ctx, self.TITLE_GLOBAL_RESULTS, global_stats=True)
+        await self._show_stats(ctx, self.TITLE_GLOBAL_RESULTS)
 
     @classmethod
-    async def _show_stats(cls, ctx: CommandContext, title: str, subtitle: str = None, global_stats: bool = False,
+    async def _show_stats(cls, ctx: CommandContext, title: str, subtitle: str = None, guild_id: int = None,
                           user_id: int = None, limit: int = 10):
-        td = time.time()
-        result = await cls._get_stats_cached(ctx, global_stats, user_id, limit)
+        await ds_utils.took_too_long_message_utility(
+            ctx.message.channel,
+            ttl_title='Loading...',
+            ttl_msg=None,
+            coro=cls._get_stats_cached(ctx, guild_id, user_id, limit),
+            timeout=0,
+            handler=partial(cls._stats_result_handler, ctx=ctx, title=title, subtitle=subtitle, user_id=user_id)
+        )
 
+    @staticmethod
+    def _stats_result_handler(results: typing.List[StatsEmoji], dt: float, *,
+                              ctx: CommandContext, title: str, subtitle: str, user_id: int):
+        result, from_cache = results
         params = {
             'username': ctx.message.author.display_name,
             'mention': ctx.message.author.mention,
@@ -85,25 +100,47 @@ class GetStatsCommand(Command):
                 msg += e.emoji.unicode
             msg += f'\t— {e.total_mentions} mentions, {round(e.percentage)}%\n'
 
-        td = round((time.time() - td) * 1000)
-        embed = discord.Embed(title=title % params, description=msg, color=discord.Colour(0xffff00),
-                              timestamp=datetime.utcnow())
-        embed.set_footer(text=f'{td}ms')
-        await ctx.message.channel.send(ctx.message.author.mention, embed=embed)
+        embed = ds_utils.create_embed(
+            title=title % params,
+            description=msg,
+            td=dt,
+            thumbnail=None if user_id is None else ctx.message.author.avatar_url,
+            from_cache=from_cache
+        )
+        return embed
 
     @staticmethod
-    async def _get_stats_cached(ctx: CommandContext, global_stats: bool = False, user_id: int = None, limit: int = 10):
+    async def _get_stats_cached(ctx: CommandContext, guild_id: int = None, user_id: int = None, limit: int = 10):
         cache_key = f'stats-t{limit}'
-        if global_stats:
+        if guild_id is None:
             cache_key += '-g'
         else:
-            cache_key += f'-{pack2b64("<Q", ctx.message.guild.id)}'
+            cache_key += f'-{pack2b64("<Q", guild_id)}'
         if user_id is not None:
             cache_key += f'-{pack2b64("<Q", user_id)}'
         result = await ctx.parent.backend.get_cache(cache_key)
         if result is None:
-            result = await ctx.parent.backend.get_emojis_top(ctx.message.guild.id, user_id=user_id, limit=limit)
+            result = await ctx.parent.backend.get_emojis_top(guild_id, user_id=user_id, limit=limit)
             await ctx.parent.backend.put_cache(cache_key, result)
-            return result
+            return result, False
         else:
-            return result
+            return result, True
+
+
+class PopulateCommand(Command):
+    async def execute(self, ctx: CommandContext):
+        try:
+            size = max(int(ctx.get_arg(0)), 100)
+        except:
+            size = 100
+
+        source = EmojiSource.from_message(ctx.message)
+        emojis = list(emoji.EMOJI_UNICODE.keys())
+        records = [
+            (source, MessageEmoji.unicode(random.choice(emojis)[1:-1]))
+            for i in range(size)
+        ]
+        await ctx.parent.backend.submit_bulk(records)
+        await ctx.message.channel.send(f'{ctx.message.author.mention} DONE {size} records created!')
+
+    default_name = 'populate'

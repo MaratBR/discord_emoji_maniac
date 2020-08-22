@@ -30,6 +30,10 @@ class EmojiBackend(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def submit_bulk(self, records: typing.List[typing.Tuple[EmojiSource, MessageEmoji]]):
+        pass
+
+    @abc.abstractmethod
     async def remove_emoji(self, source: EmojiSource, emoji_obj: Emoji):
         """
         Removes emoji for give source
