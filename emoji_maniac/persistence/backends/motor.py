@@ -2,7 +2,7 @@ import asyncio
 import pickle
 import typing
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import product
 from math import ceil
 
@@ -67,8 +67,8 @@ class _Counters:
         return int(ceil(adjusted_dom / 7.0))
 
     @classmethod
-    def period_modifiers(cls):
-        now = datetime.utcnow()
+    def period_modifiers(cls, tz: timezone):
+        now = datetime.now(tz)
         year = str(now.year)
         month = str(now.year * 100 + now.month)
         week = str(now.year * 1000 + now.month * 10 + cls._week_number_util(now))
@@ -76,41 +76,41 @@ class _Counters:
         return 'total', year, month, week, day
 
     @staticmethod
-    def year_modifier():
-        return str(datetime.utcnow().year)
+    def year_modifier(tz: timezone):
+        return str(datetime.now(tz).year)
 
     @staticmethod
-    def month_modifier():
-        now = datetime.utcnow()
+    def month_modifier(tz: timezone):
+        now = datetime.now(tz)
         return str(now.year * 100 + now.month)
 
     @classmethod
-    def week_modifier(cls):
-        now = datetime.utcnow()
+    def week_modifier(cls, tz: timezone):
+        now = datetime.now(tz)
         return str(now.year * 1000 + now.month * 10 + cls._week_number_util(now))
 
     @staticmethod
-    def day_modifier():
-        now = datetime.utcnow()
+    def day_modifier(tz: timezone):
+        now = datetime.now(tz)
         return str(now.year * 10000 + now.month * 100 + now.day)
 
     @classmethod
-    def guild_counters(cls, guild_id: int):
+    def guild_counters(cls, guild_id: int, tz: timezone):
         return [
             f'g{guild_id}_' + item
-            for item in cls.period_modifiers()
+            for item in cls.period_modifiers(tz)
         ]
 
     @classmethod
-    def user_counters(cls, guild_id: int, user_id: int):
+    def user_counters(cls, guild_id: int, user_id: int, tz: timezone):
         return [
             f'u{guild_id}-{user_id}_' + item
-            for item in cls.period_modifiers()
+            for item in cls.period_modifiers(tz)
         ]
 
     @classmethod
-    def emoji_counters(cls, emoji_uid: str, guild_id: int):
-        return [(f'{emoji_uid}-{guild_id}', mod) for mod in cls.period_modifiers()]
+    def emoji_counters(cls, emoji_uid: str, guild_id: int, tz: timezone):
+        return [(f'{emoji_uid}-{guild_id}', mod) for mod in cls.period_modifiers(tz)]
 
 
 class MotorEmojiBackend(EmojiBackend):
@@ -131,7 +131,8 @@ class MotorEmojiBackend(EmojiBackend):
 
     async def submit_reaction(self, guild_id: int, message_id: int, user_id: int, emoji_obj: Emoji):
         # Increment counters
-        counters = _Counters.guild_counters(guild_id) + _Counters.user_counters(guild_id, user_id)
+        tz = await self.get_guild_tz(guild_id)
+        counters = _Counters.guild_counters(guild_id, tz) + _Counters.user_counters(guild_id, user_id, tz)
         await self._update_guild_counters(counters, {emoji_obj.uid: 1})
 
         # Increment per-emoji counters
@@ -139,12 +140,13 @@ class MotorEmojiBackend(EmojiBackend):
 
     async def _increment_emoji_counters(self, guild_id: int, user_id: int, emojis: typing.Dict[str, int]):
         updates = []
+        tz = await self.get_guild_tz(guild_id)
         for (emoji_uid, hits) in emojis.items():
             updates = [
                 UpdateOne(
                     {'usr_id': user_id, 'emoji_uid': emoji_uid, 'gld_id': guild_id, 'period': period},
                     {'$inc': {'hits': hits}}, upsert=True)
-                for period in _Counters.period_modifiers()
+                for period in _Counters.period_modifiers(tz)
             ]
         await self._db.ds_emoji_counters.bulk_write(updates)
 
@@ -167,7 +169,8 @@ class MotorEmojiBackend(EmojiBackend):
 
     async def remove_reaction(self, guild_id: int, message_id: int, user_id: int, emoji_obj: Emoji):
         # Decrement counters
-        counters = _Counters.guild_counters(guild_id) + _Counters.user_counters(guild_id, user_id)
+        tz = await self.get_guild_tz(guild_id)
+        counters = _Counters.guild_counters(guild_id, tz) + _Counters.user_counters(guild_id, user_id, tz)
         await self._update_guild_counters(counters, {emoji_obj.uid: -1})
 
         # Decrement per-emoji counters
@@ -176,7 +179,8 @@ class MotorEmojiBackend(EmojiBackend):
     async def submit_message(self, message: discord.Message, emojis: typing.List[MessageEmoji]):
         guild_id = message.guild.id
         user_id = message.author.id
-        counters = _Counters.guild_counters(guild_id) + _Counters.user_counters(guild_id, user_id)
+        tz = await self.get_guild_tz(guild_id)
+        counters = _Counters.guild_counters(guild_id, tz) + _Counters.user_counters(guild_id, user_id, tz)
         values = {em.uid: em.count for em in emojis}
         await self._update_guild_counters(counters, values)
 
@@ -204,16 +208,20 @@ class MotorEmojiBackend(EmojiBackend):
         return await self._get_emojis_top10(guild_id, user_id, 'total')
 
     async def get_emojis_top10_yearly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
-        return await self._get_emojis_top10(guild_id, user_id, _Counters.year_modifier())
+        tz = await self.get_guild_tz(guild_id)
+        return await self._get_emojis_top10(guild_id, user_id, _Counters.year_modifier(tz))
 
     async def get_emojis_top10_monthly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
-        return await self._get_emojis_top10(guild_id, user_id, _Counters.month_modifier())
+        tz = await self.get_guild_tz(guild_id)
+        return await self._get_emojis_top10(guild_id, user_id, _Counters.month_modifier(tz))
 
     async def get_emojis_top10_weekly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
-        return await self._get_emojis_top10(guild_id, user_id, _Counters.week_modifier())
+        tz = await self.get_guild_tz(guild_id)
+        return await self._get_emojis_top10(guild_id, user_id, _Counters.week_modifier(tz))
 
     async def get_emojis_top10_daily(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
-        return await self._get_emojis_top10(guild_id, user_id, _Counters.day_modifier())
+        tz = await self.get_guild_tz(guild_id)
+        return await self._get_emojis_top10(guild_id, user_id, _Counters.day_modifier(tz))
 
     @staticmethod
     def _make_emojis_top(values: typing.List[dict]) -> typing.List[StatsEmoji]:
@@ -325,3 +333,39 @@ class MotorEmojiBackend(EmojiBackend):
 
     async def clear_cache(self):
         await self._db.ds_cache.delete_many({})
+
+    async def get_persistent_config(self, name: str, key: str):
+        return await self._get_persistent_config('custom', name, key)
+
+    async def update_persistent_config(self, name: str, data: dict, override: bool = False):
+        await self._update_persistent_config('custom', name, data, override)
+
+    async def get_guild_config(self, guild_id: int, key: str = None):
+        return await self._get_persistent_config('guild', guild_id, key)
+
+    async def update_guild_config(self, guild_id: int, data: dict, override: bool = False):
+        await self._update_persistent_config('guild', guild_id, data, override)
+
+    async def has_guild_config(self, guild_id: int) -> bool:
+        return await self._has_persistent_config('guild', guild_id)
+
+    async def _get_persistent_config(self, domain: str, name, key: str):
+        projection = None if key is None else [key]
+        doc = await self._db[f'ds_cfg_{domain}'].find_one({'_id': name}, projection=projection)
+        if key is None:
+            return doc
+        if doc:
+            return doc.get(key)
+        else:
+            return None
+
+    async def _has_persistent_config(self, domain: str, name):
+        doc = await self._db[f'ds_cfg_{domain}'].find_one({'_id': name})
+        return doc is not None
+
+    async def _update_persistent_config(self, domain: str, name, data: dict, override: bool = False):
+        if override:
+            await self._db[f'ds_cfg_{domain}'].replace_one({'_id': name}, data)
+        else:
+            await self._db[f'ds_cfg_{domain}'].update_one({'_id': name}, {'$set': data}, upsert=True)
+

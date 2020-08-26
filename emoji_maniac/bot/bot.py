@@ -66,11 +66,11 @@ class CommandContext:
 
 
 class Command(abc.ABC):
-    default_name: str = None
-
     @abc.abstractmethod
     async def execute(self, ctx: CommandContext):
         pass
+
+    default_name: str = None
 
 
 class FuncCommand(Command):
@@ -255,6 +255,30 @@ class Bot:
         c.event(self.on_message)
         c.event(self.on_raw_reaction_add)
         c.event(self.on_raw_reaction_remove)
+        c.event(self.on_guild_join)
+        c.event(self.on_guild_remove)
+
+    async def on_guild_join(self, guild: discord.Guild):
+        self.log.info(f'Bot joined guild "{guild.name}" ({guild.id})')
+        if not await self.backend.has_guild_config(guild.id):
+            await self.backend.update_guild_config(guild.id, {
+                'joined_at': datetime.utcnow(),
+                'tz_offset': 0,
+                'lang': 'en',
+                'active': True
+            })
+        else:
+            await self.backend.update_guild_config(guild.id, {
+                'active': True
+            })
+
+    async def on_guild_remove(self, guild: discord.Guild):
+        if await self.backend.has_guild_config(guild.id):
+            self.log.info(f'Bot left guild "{guild.name}" ({guild.id})')
+            await self.backend.update_guild_config(guild.id, {
+                'active': False,
+                'last_deactivated_at': datetime.utcnow()
+            })
 
     async def on_message(self, message: discord.Message):
         if message.author == self.client.user:

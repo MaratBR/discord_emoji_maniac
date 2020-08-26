@@ -14,3 +14,5 @@ class DefaultModule(ModuleBase):
         self.register_command(PingCommand)
         self.register_command(GetStatsCommand)
         self.register_command(RandomEmojiCommand)
+        self.register_command(ConfigCommand)
+        self.register_command(TodayCommand)

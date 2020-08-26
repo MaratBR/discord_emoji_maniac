@@ -2,7 +2,7 @@ import abc
 import logging
 
 import typing
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 import discord
 
@@ -66,4 +66,40 @@ class EmojiBackend(abc.ABC):
     async def clear_cache(self):
         pass
 
+    @abc.abstractmethod
+    async def get_persistent_config(self, name: str, key: str):
+        pass
+
+    @abc.abstractmethod
+    async def update_persistent_config(self, name: str, data: dict, override: bool = False):
+        pass
+
+    @abc.abstractmethod
+    async def get_guild_config(self, guild_id: int, key: str = None):
+        pass
+
+    @abc.abstractmethod
+    async def has_guild_config(self, guild_id: int) -> bool:
+        pass
+
+    @abc.abstractmethod
+    async def update_guild_config(self, guild_id: int, data: dict, override: bool = False):
+        pass
+
+    async def get_guild_tz(self, guild_id: int):
+        offset = await self.get_guild_config(guild_id, 'tz_offset')
+        if offset is None:
+            return timezone.utc
+        return timezone(timedelta(hours=offset))
+
+    async def set_guild_tz(self, guild_id: int, tz: timezone):
+        await self.update_guild_config(guild_id, {
+            'tz_offset': tz.utcoffset(None).total_seconds() // 3600
+        })
+
+    async def get_current_date(self, guild_id: int):
+        tz = await self.get_guild_tz(guild_id)
+        if tz:
+            return datetime.now(tz)
+        return datetime.utcnow()
 
