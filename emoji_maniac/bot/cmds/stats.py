@@ -101,7 +101,7 @@ class GetStatsCommand(Command):
             msg += subtitle % params + '\n'
         for e in result:
             if e.emoji.is_custom:
-                msg += str(ctx.parent.client.get_emoji(e.emoji.emoji_id))
+                msg += str(ctx.parent.bot.get_emoji(e.emoji.emoji_id))
             else:
                 msg += e.emoji.unicode_char
             msg += f'\t— {e.total_mentions} mentions, {round(e.percentage)}%\n'

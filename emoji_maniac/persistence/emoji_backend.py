@@ -5,6 +5,7 @@ import typing
 from datetime import timedelta, datetime, timezone
 
 import discord
+import discord.ext.commands as commands
 
 from emoji_maniac.bot.config import Config
 from emoji_maniac.log import get_logger
@@ -97,9 +98,36 @@ class EmojiBackend(abc.ABC):
             'tz_offset': tz.utcoffset(None).total_seconds() // 3600
         })
 
+    async def get_guild_prefix(self, guild_id: int):
+        return await self.get_guild_config(guild_id, 'cmd_prefix')
+
+    async def set_guild_prefix(self, guild_id: int, prefix: str):
+        await self.update_guild_config(guild_id, {
+            'cmd_prefix': prefix
+        })
+
     async def get_current_date(self, guild_id: int):
         tz = await self.get_guild_tz(guild_id)
         if tz:
             return datetime.now(tz)
         return datetime.utcnow()
 
+    async def get_guild_lang(self, guild_id: int):
+        return await self.get_guild_config(guild_id, 'lang')
+
+    async def set_guild_lang(self, guild_id: int, lang: str):
+        await self.update_guild_config(guild_id, {
+            'lang': lang
+        })
+
+
+class BackendCog(commands.Cog):
+    __backend: EmojiBackend
+
+    def __init__(self, backend: EmojiBackend):
+        self.__backend = backend
+
+    def get_backend(self) -> EmojiBackend:
+        return self.__backend
+
+    b = property(get_backend)

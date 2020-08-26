@@ -1,10 +1,10 @@
 from emoji_maniac.bot.bot import ModuleBase, Bot
-from emoji_maniac.bot.commands import *
+from emoji_maniac.bot.cmds import *
 
 
 class DefaultModule(ModuleBase):
     def get_description(self) -> str:
-        return 'Default module with basic commands'
+        return 'Default module with basic cmds'
 
     def get_display_name(self) -> str:
         return 'Default module'

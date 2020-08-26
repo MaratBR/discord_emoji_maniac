@@ -1,14 +1,11 @@
 import typing
 
 from emoji_maniac import Bot, set_debug
-from emoji_maniac.bot.commands.module import DefaultModule
 from emoji_maniac.persistence.emoji_backend import EmojiBackend
 
 
 def create_bot(backend: typing.Type[EmojiBackend]):
-    bot = Bot(backend)
-    bot.add_module(DefaultModule)
-    return bot
+    return Bot(backend)
 
 
 def run_default(debug: bool = False):

@@ -5,7 +5,7 @@ from emoji_maniac.bot.bot import Command, CommandContext
 
 
 class ConfigCommand(Command):
-    default_name = 'config'
+    default_name = 'storage'
 
     TITLE_CURRENT_DATE = 'What a beautiful day, today is!'
 
