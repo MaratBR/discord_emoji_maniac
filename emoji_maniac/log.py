@@ -9,7 +9,7 @@ _is_debug = False
 
 
 def _initialize_logger(logger: logging.Logger):
-    level = logging.DEBUG if _is_debug else logging.WARN
+    level = logging.DEBUG if _is_debug else logging.INFO
     logger.setLevel(level)
     logger.handlers.clear()
 
@@ -62,8 +62,10 @@ class LoggingRecordLevelFilter(logging.Filter):
 below_warning_filter = LoggingRecordLevelFilter(lambda level: level < logging.WARNING)
 above_warning_filter = LoggingRecordLevelFilter(lambda level: level >= logging.WARNING)
 
+
 class BaseFormatter(logging.Formatter):
     def __init__(self):
         super(BaseFormatter, self).__init__('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+
 
 base_formatter_instance = BaseFormatter()

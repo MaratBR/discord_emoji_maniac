@@ -89,11 +89,67 @@ class FFCCommand(Command, abc.ABC):
         pass
 
 
+class Module(abc.ABC):
+    bot: 'Bot'
+    activated: bool = False
+
+    def __init__(self, bot: 'Bot'):
+        self.bot = bot
+
+    def activate(self):
+        if self.activated:
+            return
+        self.activated = True
+        self._activate()
+
+    @abc.abstractmethod
+    def _activate(self):
+        pass
+
+    def deactivate(self):
+        if not self.activated:
+            return
+        self.activated = False
+        self._deactivate()
+
+    @abc.abstractmethod
+    def _deactivate(self):
+        pass
+
+    @abc.abstractmethod
+    def get_description(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def get_display_name(self) -> str:
+        pass
+
+
+class ModuleBase(Module, abc.ABC):
+    _commands: list
+
+    def __init__(self, bot: 'Bot'):
+        super(ModuleBase, self).__init__(bot)
+        self._commands = []
+
+    def register_command(self, command: typing.Union[Command, typing.Type[Command]], name: str = None):
+        self._commands.append((command, name))
+
+    def _activate(self):
+        for (c, n) in self._commands:
+            self.bot.register_command(c, n)
+
+    def _deactivate(self):
+        for (c, _) in self._commands:
+            self.bot.unregister_command(c)
+
+
 class Bot:
     client: discord.Client
     config: Config
     log: Logger
-    _commands: typing.Dict[str, Command] = {}
+    _commands: typing.Dict[str, Command]
+    _modules: typing.Dict[str, Module]
     _ctx: BotContext
 
     def __init__(self, backend: typing.Type[EmojiBackend], cfg_file='emoji_cfg.yaml', client_args: dict = None):
@@ -103,11 +159,21 @@ class Bot:
         self.client = self._create_client(client_args)
         self.backend = backend(self.config)
         self._ctx = BotContext(self)
+        self._commands = {}
+        self._modules = {}
 
     def run(self):
+        """
+        Runs the bot. Blocking call
+        """
         self.client.run(self.config.token)
 
     def register_command(self, command: typing.Union[Command, typing.Type[Command], typing.Callable], name: str = None):
+        """
+        Registers the command
+        :param command: Command instance or a subclass of Command or a function
+        :param name: Name of command, overrides default_name of command
+        """
         name = name or command.default_name
         if name is None:
             raise ValueError(f'Command {command.__class__.__name__} does not have a default name, please specify name '
@@ -123,11 +189,44 @@ class Bot:
             command = FuncCommand(command)
         self._commands[name] = command
 
+    def unregister_command(self, name: typing.Union[str, Command, typing.Type[Command]]):
+        """
+        Removes the command
+        :param name:
+            name of the command, must not be None,
+            can be either a string or a command instance or command subclass
+        """
+        name = name if isinstance(name, str) else name.default_name
+        if name is None:
+            raise ValueError('name argument must be set')
+        if name in self._commands:
+            del self._commands[name]
+        else:
+            self.log.warning(f'failed to remove command {name} - command not found')
+
     def command(self, name: str = None):
+        """
+        Returns a decorator for registering commands.
+        Decorator passes whatever is decorated with to register_command method.
+
+        :param name: name of the command, optional
+        :return: decorate function
+        """
         def decorator(func):
             self.register_command(func, name)
             return func
         return decorator
+
+    def add_module(self, module_class: typing.Type[Module]):
+        module = module_class(self)
+        self._modules[module_class.__name__] = module
+
+    def activate_module(self, module_class: typing.Type[Module]):
+        module = self._modules.get(module_class.__name__)
+        if module is not None:
+            module.activate()
+        else:
+            self.log.debug('Trying to activate module that does not exist')
 
     def _create_client(self, args: dict) -> discord.Client:
         args = args or {}
@@ -142,6 +241,11 @@ class Bot:
         await self._submit_emojis_on_reaction(payload, True)
 
     async def on_ready(self):
+        self.log.info(f'Modules list is locked, modules cannot be added anymore. Modules list: ' +
+                      ', '.join(map(lambda m: type(m).__name__, self._modules.values())))
+        for m in self._modules.values():
+            m.activate()
+
         self.log.info(f'Bot is ready - {self.client.user.name}')
         self.log.info(f'Initializing {type(self.backend).__name__} backend...')
         await self.backend.init()
@@ -151,8 +255,6 @@ class Bot:
         c.event(self.on_message)
         c.event(self.on_raw_reaction_add)
         c.event(self.on_raw_reaction_remove)
-        c.event(self.on_message_delete)
-        c.event(self.on_message_delete)
 
     async def on_message(self, message: discord.Message):
         if message.author == self.client.user:
@@ -178,35 +280,19 @@ class Bot:
 
         await self._handle_incoming_message(message)
 
-    async def on_message_delete(self, message: discord.Message):
-        if message.author == self.client.user:
-            return
-        lifetime = datetime.utcnow() - message.created_at
-        if lifetime.total_seconds() > 60:
-            return
-        await self._handle_message_delete(message)
-
     async def _handle_incoming_message(self, message: discord.Message, from_history: bool = False):
         await self._submit_emojis_on_message(message)
         self.log.info(f'New message from {message.author.display_name}: {message.content}')
-
-    async def _handle_message_delete(self, message: discord.Message):
-        source = EmojiSource.from_message(message)
-        await self.backend.remove_emoji_source(source)
 
     async def _submit_emojis_on_message(self, message: discord.Message):
         emojis = get_emojis(message.content)
         if len(emojis) == 0:
             return
-        guild: discord.Guild = message.guild
-        source = EmojiSource(guild_id=guild.id, message_id=message.id, user_id=message.author.id)
-        tasks = (self.backend.submit_emoji(source, emoji) for emoji in emojis)
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.backend.submit_message(message, emojis)
 
     async def _submit_emojis_on_reaction(self, reaction: discord.RawReactionActionEvent, removed: bool):
-        source = EmojiSource.from_reaction(reaction)
         emoji_obj = MessageEmoji.from_reaction(reaction)
         if removed:
-            await self.backend.remove_emoji(source, emoji_obj)
+            await self.backend.remove_reaction(reaction.guild_id, reaction.message_id, reaction.user_id, emoji_obj)
         else:
-            await self.backend.submit_emoji(source, emoji_obj)
+            await self.backend.submit_reaction(reaction.guild_id, reaction.message_id, reaction.user_id, emoji_obj)

@@ -4,6 +4,8 @@ import logging
 import typing
 from datetime import timedelta
 
+import discord
+
 from emoji_maniac.bot.config import Config
 from emoji_maniac.log import get_logger
 from emoji_maniac.persistence.models import EmojiSource, Emoji, MessageEmoji, StatsEmoji
@@ -21,38 +23,35 @@ class EmojiBackend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def submit_emoji(self, source: EmojiSource, emoji_obj: MessageEmoji):
-        """
-        Submits emoji to given source
-        :param source: Source where emoji came from
-        :param emoji_obj: Emoji representation
-        """
+    async def submit_reaction(self, guild_id: int, message_id: int, user_id: int, emoji: Emoji):
         pass
 
     @abc.abstractmethod
-    async def submit_bulk(self, records: typing.List[typing.Tuple[EmojiSource, MessageEmoji]]):
+    async def remove_reaction(self, guild_id: int, message_id: int, user_id: int, emoji: Emoji):
         pass
 
     @abc.abstractmethod
-    async def remove_emoji(self, source: EmojiSource, emoji_obj: Emoji):
-        """
-        Removes emoji for give source
-        :param source: Source where emoji came from
-        :param emoji_obj: Emoji representation
-        """
+    async def submit_message(self, message: discord.Message, emojis: typing.List[MessageEmoji]):
         pass
 
     @abc.abstractmethod
-    async def remove_emoji_source(self, source: EmojiSource):
-        """
-        Removes emoji source
-        :param source: Source where emoji came from
-        """
+    async def get_emojis_top10(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
         pass
 
     @abc.abstractmethod
-    async def get_emojis_top(self, guild_id: int = None, last_n_days: int = None,
-                             user_id: int = None, limit: int = None) -> typing.List[StatsEmoji]:
+    async def get_emojis_top10_yearly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
+        pass
+
+    @abc.abstractmethod
+    async def get_emojis_top10_monthly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
+        pass
+
+    @abc.abstractmethod
+    async def get_emojis_top10_weekly(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
+        pass
+
+    @abc.abstractmethod
+    async def get_emojis_top10_daily(self, guild_id: int, user_id: int = None) -> typing.List[StatsEmoji]:
         pass
 
     @abc.abstractmethod

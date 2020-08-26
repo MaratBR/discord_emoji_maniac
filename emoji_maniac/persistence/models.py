@@ -17,33 +17,34 @@ class Emoji:
     @cached_property
     def uid(self):
         if self.is_custom:
-            return 'c:' + pack2b64('<Q', self.emoji_id) + ':' + self.name
+            return 'c' + pack2b64('<Q', self.emoji_id) + ':' + self.name
         else:
             emoji_unicode = emoji.EMOJI_UNICODE[f':{self.name}:']
             emoji_bytes = emoji_unicode.encode('utf-16be')
-            return 'u:' + base64.b64encode(emoji_bytes).decode('ascii') + ':' + self.name
+            return 'u' + base64.b64encode(emoji_bytes).decode('ascii') + ':' + self.name
 
     @property
-    def unicode(self):
+    def unicode_char(self):
         return emoji.EMOJI_UNICODE.get(f':{self.name}:')
 
     @classmethod
     def from_uid(cls, uid: str):
-        parts = uid.split(':')
-        if len(parts) != 3:
+        parts = uid[1:].split(':')
+        if len(parts) != 2:
             return None
-        type_ = parts[0]
-        name = parts[2]
+        type_ = uid[0]
+        name = parts[1]
         if type_ == 'u':
             if f':{name}:' in emoji.EMOJI_UNICODE:
                 return cls(name=name, is_custom=False)
             return None
         elif type_ == 'c':
             try:
-                emoji_id = unpack_from_b64('<Q', parts[1])[0]
+                emoji_id = unpack_from_b64('<Q', parts[0])[0]
                 return cls(is_custom=True, name=name, emoji_id=emoji_id)
             except:
                 return None
+
 
 @dataclass
 class MessageEmoji(Emoji):
