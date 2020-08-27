@@ -126,3 +126,16 @@ class EmojiCommandsMixin:
 
 
     #endregion
+
+    #region ping command
+
+    @commands.command('ping')
+    async def _ping(self, ctx: commands.Context):
+        lang = await self.backend.get_guild_lang(ctx.guild.id)
+        embed = ds_utils.create_embed(
+            title=self.__cfg.i18n.get(lang, 'ping:pong'),
+            description=self.__cfg.i18n.get(lang, 'ping:body', round(self.bot.latency * 1000))
+        )
+        await ctx.send(embed=embed)
+
+    #endregion

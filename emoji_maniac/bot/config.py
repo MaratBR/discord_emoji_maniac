@@ -38,7 +38,7 @@ class I18NConfig:
     def get(self, lang: str, key: str, params=None):
         value = self._get(lang, key)
         if value is None:
-            return None
+            return key
         elif isinstance(value, list):
             value = random.choice(value)
         if params is None:

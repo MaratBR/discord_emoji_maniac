@@ -1,11 +1,14 @@
-this_language: English
-this_language_in_english: English
+lang: English
+lang:english: English
 
 stats:user_total: "`%s`'s personal stats"
 stats:user_period: "`%s`'s personal stats (%s)"
 stats:guild_total: "Guild stats — _%s_"
 stats:guild_period: "Guild stats — _%s_ (%s)"
 
-today:title: What a beautiful day, today is!
+today:title: 'What a beautiful day, today is!'
 today:description: ":calendar: I configured with timezone `%(tz)s`, so IMO today is `%(now)s`.\nHave a good day and smile more :slight_smile:"
 today:date_fmt: '%B %d, %Y, %A %X'
+
+ping:pong: Pong
+ping:body: ':ping_pong: — %sms'
